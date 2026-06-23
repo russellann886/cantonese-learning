@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "只启动服务",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "${workspaceFolder}/start_preview.command"
+    },
+    {
+      "name": "启动服务并打开页面",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:8080/index.html",
+      "webRoot": "${workspaceFolder}",
+      "preLaunchTask": "启动本地预览服务"
+    },
+    {
+      "name": "附加调试",
+      "type": "chrome",
+      "request": "attach",
+      "port": 9222,
+      "webRoot": "${workspaceFolder}"
+    }
+  ]
+}
