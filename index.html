@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>粤语翻译台</title>
+  <style>
+    :root {
+      --bg: #f4f8ff;
+      --panel: #ffffff;
+      --panel-soft: #f8fbff;
+      --line: #d9e5ff;
+      --line-strong: #bdd1ff;
+      --text: #173154;
+      --muted: #5f7696;
+      --primary: #2f6df6;
+      --primary-strong: #1855dc;
+      --primary-soft: #ebf2ff;
+      --danger: #c43b59;
+      --danger-soft: #fff1f4;
+      --success: #13795b;
+      --success-soft: #edf9f5;
+      --shadow: 0 20px 60px rgba(41, 92, 182, 0.12);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+    }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "PingFang SC",
+        "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(47, 109, 246, 0.12), transparent 28rem),
+        linear-gradient(180deg, #f7faff 0%, #eef4ff 100%);
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible {
+      outline: 3px solid rgba(47, 109, 246, 0.24);
+      outline-offset: 2px;
+    }
+
+    .page {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 28px 0 40px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+      gap: 20px;
+      align-items: start;
+      margin-bottom: 22px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--primary-strong);
+      font-size: 0.86rem;
+      font-weight: 700;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    h1 {
+      margin: 14px 0 10px;
+      font-size: clamp(2.3rem, 5vw, 4.6rem);
+      line-height: 0.96;
+      letter-spacing: -0.06em;
+    }
+
+    .lead {
+      max-width: 700px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 1rem;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+
+    .settings,
+    .panel {
+      padding: 22px;
+    }
+
+    .settings h2,
+    .panel h2,
+    .result-header h2 {
+      margin: 0;
+      font-size: 1.08rem;
+    }
+
+    .subtle {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 0.93rem;
+    }
+
+    .subtle + .subtle {
+      margin-top: 10px;
+    }
+
+    .hint {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+      word-break: break-word;
+    }
+
+    .field {
+      margin-top: 16px;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    .field-actions {
+      margin-top: 10px;
+    }
+
+    .input,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--panel-soft);
+      color: var(--text);
+    }
+
+    .input {
+      min-height: 48px;
+      padding: 0 14px;
+    }
+
+    textarea {
+      min-height: 320px;
+      padding: 16px;
+      resize: vertical;
+      line-height: 1.65;
+    }
+
+    textarea::placeholder,
+    .input::placeholder {
+      color: #8aa0bd;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 16px;
+      border-radius: 14px;
+      transition: background 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+      transform: none;
+    }
+
+    .btn-primary {
+      color: #ffffff;
+      background: linear-gradient(180deg, var(--primary), var(--primary-strong));
+    }
+
+    .btn-secondary {
+      border: 1px solid var(--line-strong);
+      background: var(--primary-soft);
+      color: var(--primary-strong);
+    }
+
+    .btn-danger {
+      border: 1px solid #f3c6d1;
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .status {
+      min-height: 22px;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .status.error {
+      color: var(--danger);
+    }
+
+    .status.success {
+      color: var(--success);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(360px, 0.95fr);
+      gap: 22px;
+      align-items: start;
+    }
+
+    .panel-header,
+    .result-header,
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .counter,
+    .chip {
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #ffffff;
+    }
+
+    .examples {
+      margin-top: 18px;
+    }
+
+    .examples-title {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .example-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .example-chip {
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #ffffff;
+      color: var(--text);
+    }
+
+    .example-chip:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .actions {
+      margin-top: 18px;
+    }
+
+    .result-panel {
+      position: sticky;
+      top: 16px;
+    }
+
+    .result-main {
+      margin-top: 18px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    }
+
+    .result-label {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 0.86rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .result-text {
+      min-height: 92px;
+      margin: 0;
+      font-size: clamp(1.4rem, 2.8vw, 2.2rem);
+      line-height: 1.45;
+      letter-spacing: -0.03em;
+      word-break: break-word;
+    }
+
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .result-box {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel-soft);
+    }
+
+    .result-box p {
+      margin: 0;
+      word-break: break-word;
+    }
+
+    .actions-secondary {
+      margin-top: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .divider {
+      height: 1px;
+      margin: 18px 0 0;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+    }
+
+    .note {
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 980px) {
+      .topbar,
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .result-panel {
+        position: static;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        width: min(100% - 24px, 760px);
+        padding-top: 18px;
+      }
+
+      .settings,
+      .panel {
+        padding: 18px;
+      }
+
+      textarea {
+        min-height: 220px;
+      }
+
+      .result-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .btn,
+      .example-chip {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <section>
+        <span class="eyebrow">支持本地预览 + GitHub Pages / Render 混合部署</span>
+        <h1>普通话转地道粤语</h1>
+        <p class="lead">左边输入原句，右边查看粤语结果、语气说明和跟读版。页面支持本地同源代理，也支持在 GitHub Pages 上改填云端代理地址，浏览器端不再保存 API Key。</p>
+      </section>
+
+      <aside class="card settings" aria-labelledby="settingsTitle">
+        <h2 id="settingsTitle">代理配置</h2>
+        <p class="subtle">本地预览时默认走当前域名下的同源代理；部署到 GitHub Pages 后，可在这里填写 Render 后端地址。</p>
+        <p class="subtle">Render 服务端负责保存 `OPENROUTER_API_KEY` 或 `GEMINI_API_KEY`，前端只保存代理地址。</p>
+
+        <div class="field">
+          <label for="proxyBaseInput">云端代理地址</label>
+          <input
+            class="input"
+            id="proxyBaseInput"
+            type="url"
+            inputmode="url"
+            placeholder="https://your-render-service.onrender.com"
+            autocomplete="off"
+          />
+          <div class="row field-actions">
+            <button class="btn btn-secondary" id="saveProxyBtn" type="button">保存地址</button>
+            <button class="btn btn-secondary" id="resetProxyBtn" type="button">恢复本地默认</button>
+          </div>
+        </div>
+
+        <p class="hint" id="activeProxyHint">当前将自动判断代理地址。</p>
+        <p class="status" id="backendStatus" role="status" aria-live="polite">正在检查代理状态...</p>
+      </aside>
+    </header>
+
+    <section class="workspace" aria-label="粤语翻译工作区">
+      <section class="card panel" aria-labelledby="inputTitle">
+        <div class="panel-header">
+          <h2 id="inputTitle">普通话输入</h2>
+          <span class="counter" id="charCount" aria-live="polite">0 / 500</span>
+        </div>
+
+        <div class="field">
+          <label for="sourceText">原文</label>
+          <textarea
+            id="sourceText"
+            maxlength="500"
+            placeholder="例如：今天下班后我想去旺角吃饭，你有时间吗？"
+            aria-describedby="inputStatus"
+          ></textarea>
+        </div>
+
+        <div class="examples" aria-labelledby="examplesTitle">
+          <p class="examples-title" id="examplesTitle">示例</p>
+          <div class="example-list">
+            <button class="example-chip" type="button" data-example="今天下班后我想去旺角吃饭，你有时间吗？">下班约饭</button>
+            <button class="example-chip" type="button" data-example="不好意思，我现在有点忙，晚一点再回复你。">礼貌回复</button>
+            <button class="example-chip" type="button" data-example="这个多少钱？可以便宜一点吗？">买东西讲价</button>
+            <button class="example-chip" type="button" data-example="我不知道怎么去港铁站，可以帮我一下吗？">问路求助</button>
+          </div>
+        </div>
+
+        <div class="row actions">
+          <button class="btn btn-primary" id="translateBtn" type="button">翻译成粤语</button>
+          <button class="btn btn-secondary" id="clearBtn" type="button">清空输入</button>
+        </div>
+        <p class="status" id="inputStatus" role="status" aria-live="polite">输入 1 到 3 句即可。</p>
+      </section>
+
+      <section class="card panel result-panel" aria-labelledby="resultTitle">
+        <div class="result-header">
+          <h2 id="resultTitle">粤语输出</h2>
+          <span class="chip" id="resultChip">等待翻译</span>
+        </div>
+
+        <div class="result-main">
+          <p class="result-label">主结果</p>
+          <p class="result-text" id="resultText" tabindex="0">未生成结果。</p>
+        </div>
+
+        <div class="result-grid">
+          <section class="result-box" aria-labelledby="toneTitle">
+            <div class="result-row">
+              <h2 id="toneTitle">语气说明</h2>
+            </div>
+            <p id="toneText">生成后显示。</p>
+          </section>
+
+          <section class="result-box" aria-labelledby="readingTitle">
+            <div class="result-row">
+              <h2 id="readingTitle">跟读版</h2>
+            </div>
+            <p id="readingText">生成后显示。</p>
+          </section>
+        </div>
+
+        <div class="actions-secondary" aria-label="结果操作">
+          <button class="btn btn-primary" id="playBtn" type="button">播放</button>
+          <button class="btn btn-secondary" id="stopBtn" type="button">停止</button>
+          <button class="btn btn-secondary" id="copyBtn" type="button">复制结果</button>
+        </div>
+          <p class="status" id="resultStatus" role="status" aria-live="polite">代理就绪后即可发起翻译。</p>
+        <p class="status" id="voiceStatus" role="status" aria-live="polite"></p>
+        <p class="status" id="copyStatus" role="status" aria-live="polite"></p>
+
+        <div class="divider"></div>
+        <p class="note">模型只返回结果、简短语气说明和跟读版，不展示长解释。</p>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const TRANSLATE_ENDPOINT = "/api/translate";
+    const HEALTH_ENDPOINT = "/api/health";
+    const DEFAULT_RESULT = "未生成结果。";
+    const DEFAULT_TONE = "生成后显示。";
+    const DEFAULT_READING = "生成后显示。";
+    const DEFAULT_VOICE_MESSAGE = "翻译成功后可直接播放。";
+    const PROXY_STORAGE_KEY = "cantonese_proxy_base_url";
+    const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+    const queryProxy = new URLSearchParams(window.location.search).get("proxy") || "";
+
+    const sourceText = document.querySelector("#sourceText");
+    const charCount = document.querySelector("#charCount");
+    const inputStatus = document.querySelector("#inputStatus");
+    const translateBtn = document.querySelector("#translateBtn");
+    const clearBtn = document.querySelector("#clearBtn");
+    const resultText = document.querySelector("#resultText");
+    const toneText = document.querySelector("#toneText");
+    const readingText = document.querySelector("#readingText");
+    const resultStatus = document.querySelector("#resultStatus");
+    const resultChip = document.querySelector("#resultChip");
+    const playBtn = document.querySelector("#playBtn");
+    const stopBtn = document.querySelector("#stopBtn");
+    const copyBtn = document.querySelector("#copyBtn");
+    const voiceStatus = document.querySelector("#voiceStatus");
+    const copyStatus = document.querySelector("#copyStatus");
+    const backendStatus = document.querySelector("#backendStatus");
+    const proxyBaseInput = document.querySelector("#proxyBaseInput");
+    const saveProxyBtn = document.querySelector("#saveProxyBtn");
+    const resetProxyBtn = document.querySelector("#resetProxyBtn");
+    const activeProxyHint = document.querySelector("#activeProxyHint");
+    const exampleButtons = document.querySelectorAll(".example-chip");
+
+    let currentResult = "";
+    let currentReading = "";
+    let isLoading = false;
+    let voices = [];
+    let savedProxyBase = "";
+
+    function updateCharCount() {
+      charCount.textContent = `${sourceText.value.length} / 500`;
+    }
+
+    function normalizeInput(value) {
+      return value.replace(/\s+/g, " ").trim();
+    }
+
+    function normalizeProxyBase(value) {
+      return String(value || "").trim().replace(/\/+$/, "");
+    }
+
+    function isLocalPreview() {
+      return LOCAL_HOSTS.has(window.location.hostname);
+    }
+
+    function getDefaultProxyBase() {
+      return isLocalPreview() ? window.location.origin : "";
+    }
+
+    function getEffectiveProxyBase() {
+      return savedProxyBase || getDefaultProxyBase();
+    }
+
+    function buildApiUrl(path) {
+      const base = getEffectiveProxyBase();
+      return base ? `${base}${path}` : "";
+    }
+
+    function persistProxyBase(base) {
+      if (base) {
+        window.localStorage.setItem(PROXY_STORAGE_KEY, base);
+        return;
+      }
+      window.localStorage.removeItem(PROXY_STORAGE_KEY);
+    }
+
+    function syncProxyUi() {
+      proxyBaseInput.value = savedProxyBase;
+      const base = getEffectiveProxyBase();
+      if (savedProxyBase) {
+        activeProxyHint.textContent = `当前云端代理：${base}`;
+        return;
+      }
+      if (base) {
+        activeProxyHint.textContent = `当前本地默认代理：${base}`;
+        return;
+      }
+      activeProxyHint.textContent = "当前未配置代理地址。若页面部署在 GitHub Pages，请填写 Render 服务地址。";
+    }
+
+    function setStatus(element, text, type) {
+      element.textContent = text;
+      element.classList.remove("error", "success");
+      if (type) {
+        element.classList.add(type);
+      }
+    }
+
+    function resetResult() {
+      currentResult = "";
+      currentReading = "";
+      resultText.textContent = DEFAULT_RESULT;
+      toneText.textContent = DEFAULT_TONE;
+      readingText.textContent = DEFAULT_READING;
+      resultChip.textContent = "等待翻译";
+      updateActionState();
+    }
+
+    function renderResult(payload) {
+      currentResult = payload.cantonese;
+      currentReading = payload.reading_version || payload.cantonese;
+      resultText.textContent = payload.cantonese;
+      toneText.textContent = payload.tone_note;
+      readingText.textContent = currentReading;
+      resultChip.textContent = "代理已返回";
+      updateActionState();
+      resultText.focus();
+    }
+
+    function updateActionState() {
+      const hasResult = Boolean(currentResult);
+      const speechSupported = "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
+
+      playBtn.disabled = !hasResult || !speechSupported;
+      stopBtn.disabled = !speechSupported;
+      copyBtn.disabled = !hasResult;
+      translateBtn.disabled = isLoading;
+      exampleButtons.forEach((button) => {
+        button.disabled = isLoading;
+      });
+    }
+
+    function setLoadingState(loading) {
+      isLoading = loading;
+      translateBtn.textContent = loading ? "翻译中..." : "翻译成粤语";
+      updateActionState();
+    }
+
+    async function requestTranslation(source) {
+      const url = buildApiUrl(TRANSLATE_ENDPOINT);
+      if (!url) {
+        const configError = new Error("proxy_not_configured");
+        configError.code = "proxy_not_configured";
+        throw configError;
+      }
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ source })
+      });
+
+      if (!response.ok) {
+        let errorBody = null;
+        try {
+          errorBody = await response.json();
+        } catch (parseError) {
+          errorBody = null;
+        }
+
+        const message = errorBody && errorBody.error && errorBody.error.message
+          ? errorBody.error.message
+          : `HTTP_${response.status}`;
+        const requestError = new Error(message);
+        requestError.status = response.status;
+        requestError.code = errorBody && errorBody.error ? errorBody.error.code : "";
+        throw requestError;
+      }
+
+      return response.json();
+    }
+
+    function getFriendlyErrorMessage(error) {
+      if (error && error.code === "validation_failed") {
+        return "请输入 1 到 500 字的内容。";
+      }
+      if (error && error.code === "proxy_not_configured") {
+        return "请先配置可访问的云端代理地址。";
+      }
+      if (error && error.code === "server_not_configured") {
+        return "服务端未配置可用的翻译密钥。";
+      }
+      if (error && error.code === "auth_failed") {
+        return "服务端翻译密钥无效，请检查环境变量。";
+      }
+      if (error && error.code === "rate_limited") {
+        return "请求过于频繁，或免费额度已用完，请稍后再试。";
+      }
+      if (error && error.code === "network_error") {
+        return "代理连接翻译上游失败，请检查网络后重试。";
+      }
+      if (error && (error.code === "upstream_unavailable" || error.code === "upstream_invalid_response")) {
+        return "翻译上游暂时不可用，请稍后重试。";
+      }
+      if (error && error.status === 404) {
+        return "代理地址可访问，但未找到 `/api/translate` 接口。";
+      }
+      if (error instanceof TypeError) {
+        return savedProxyBase
+          ? "无法连接云端代理，请检查 Render 地址和服务状态。"
+          : "无法连接本地代理，请先运行预览脚本。";
+      }
+      return "翻译失败，请稍后重试。";
+    }
+
+    async function checkBackendStatus() {
+      const url = buildApiUrl(HEALTH_ENDPOINT);
+      if (!url) {
+        setStatus(backendStatus, "当前未配置代理地址，请填写可访问的 Render 服务地址。", "error");
+        if (!currentResult) {
+          setStatus(resultStatus, "先配置代理地址，再发起翻译。", "error");
+        }
+        syncProxyUi();
+        return;
+      }
+
+      try {
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`HTTP_${response.status}`);
+        }
+        const data = await response.json();
+        if (data && data.configured) {
+          const provider = data.provider === "openrouter"
+            ? "OpenRouter"
+            : data.provider === "gemini"
+              ? "Gemini"
+              : "已配置上游";
+          const proxyType = savedProxyBase ? "云端代理" : "本地同源代理";
+          setStatus(backendStatus, `${proxyType}已就绪，当前上游：${provider}。`, "success");
+          if (!currentResult) {
+            setStatus(resultStatus, "代理就绪，可以发起翻译。", "success");
+          }
+          return;
+        }
+        setStatus(backendStatus, "代理已可访问，但服务端未配置可用密钥。", "error");
+        if (!currentResult) {
+          setStatus(resultStatus, "请先在服务端配置 OPENROUTER_API_KEY 或 GEMINI_API_KEY。", "error");
+        }
+      } catch (error) {
+        setStatus(
+          backendStatus,
+          savedProxyBase
+            ? "无法连接云端代理，请检查地址、Render 服务状态和 CORS 配置。"
+            : "未连接到本地代理，请先运行预览脚本。",
+          "error"
+        );
+        if (!currentResult) {
+          setStatus(resultStatus, "当前无法访问代理接口。", "error");
+        }
+      }
+    }
+
+    async function handleTranslate() {
+      const source = normalizeInput(sourceText.value);
+
+      copyStatus.textContent = "";
+      if (!source) {
+        setStatus(inputStatus, "请先输入要翻译的普通话。", "error");
+        sourceText.focus();
+        return;
+      }
+
+      setStatus(inputStatus, "请求已发出。", "");
+      setStatus(resultStatus, "代理正在请求翻译上游...", "");
+      setStatus(voiceStatus, "", "");
+      resetResult();
+      resultChip.textContent = "翻译中";
+      setLoadingState(true);
+
+      try {
+        const payload = await requestTranslation(source);
+        renderResult(payload);
+        setStatus(inputStatus, "翻译完成。", "success");
+        setStatus(resultStatus, "已返回主结果、语气说明和跟读版。", "success");
+        setStatus(voiceStatus, DEFAULT_VOICE_MESSAGE, "");
+      } catch (error) {
+        resetResult();
+        resultChip.textContent = "翻译失败";
+        setStatus(inputStatus, getFriendlyErrorMessage(error), "error");
+        setStatus(resultStatus, "本次请求未生成有效结果。", "error");
+        if (error && error.code === "server_not_configured") {
+          setStatus(backendStatus, "代理已可访问，但服务端未配置可用密钥。", "error");
+        }
+      } finally {
+        setLoadingState(false);
+      }
+    }
+
+    function pickVoice() {
+      const priorities = ["yue-HK", "zh-HK", "zh-TW", "zh-CN", "zh"];
+      for (const lang of priorities) {
+        const matched = voices.find((voice) => voice.lang.toLowerCase().replace(/_/g, "-").startsWith(lang.toLowerCase()));
+        if (matched) {
+          return matched;
+        }
+      }
+      return voices.find((voice) => /cantonese|hong kong|粤|粵|中文|chinese/i.test(`${voice.name} ${voice.lang}`));
+    }
+
+    function loadVoices() {
+      if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+        setStatus(voiceStatus, "当前浏览器不支持语音播放。", "error");
+        updateActionState();
+        return;
+      }
+
+      voices = window.speechSynthesis.getVoices();
+      if (!currentResult) {
+        setStatus(voiceStatus, DEFAULT_VOICE_MESSAGE, "");
+      }
+      updateActionState();
+    }
+
+    function playVoice() {
+      if (!currentResult) {
+        setStatus(voiceStatus, "请先生成结果。", "error");
+        return;
+      }
+      if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+        setStatus(voiceStatus, "当前浏览器不支持语音播放。", "error");
+        return;
+      }
+
+      window.speechSynthesis.cancel();
+      if (voices.length === 0) {
+        voices = window.speechSynthesis.getVoices();
+      }
+
+      const utterance = new SpeechSynthesisUtterance(currentReading || currentResult);
+      const voice = pickVoice();
+      if (voice) {
+        utterance.voice = voice;
+        utterance.lang = voice.lang || "zh-HK";
+        setStatus(voiceStatus, `正在播放：${voice.name}`, "");
+      } else {
+        utterance.lang = "zh-HK";
+        setStatus(voiceStatus, "未找到明确粤语语音，已改用最接近的中文语音。", "");
+      }
+      utterance.rate = 0.9;
+      utterance.pitch = 1;
+      utterance.onend = () => {
+        setStatus(voiceStatus, "播放完成。", "success");
+      };
+      utterance.onerror = () => {
+        setStatus(voiceStatus, "语音播放失败。", "error");
+      };
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function stopVoice() {
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        setStatus(voiceStatus, "已停止播放。", "");
+      }
+    }
+
+    async function copyResult() {
+      if (!currentResult) {
+        setStatus(copyStatus, "请先生成结果。", "error");
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(currentResult);
+        setStatus(copyStatus, "已复制主结果。", "success");
+      } catch (error) {
+        setStatus(copyStatus, "复制失败，请手动复制。", "error");
+      }
+    }
+
+    function clearInput() {
+      stopVoice();
+      sourceText.value = "";
+      resetResult();
+      updateCharCount();
+      setStatus(inputStatus, "输入已清空。", "");
+      setStatus(copyStatus, "", "");
+      setStatus(voiceStatus, DEFAULT_VOICE_MESSAGE, "");
+      sourceText.focus();
+      checkBackendStatus();
+    }
+
+    function saveProxyBase() {
+      const normalized = normalizeProxyBase(proxyBaseInput.value);
+      if (!normalized) {
+        setStatus(backendStatus, "请输入完整的云端代理地址，例如 https://your-render-service.onrender.com", "error");
+        return;
+      }
+
+      try {
+        const url = new URL(normalized);
+        if (!/^https?:$/.test(url.protocol)) {
+          throw new Error("invalid_protocol");
+        }
+      } catch (error) {
+        setStatus(backendStatus, "代理地址格式无效，请填写完整的 http 或 https 地址。", "error");
+        return;
+      }
+
+      savedProxyBase = normalized;
+      persistProxyBase(savedProxyBase);
+      syncProxyUi();
+      setStatus(backendStatus, "云端代理地址已保存，正在检查服务状态...", "");
+      checkBackendStatus();
+    }
+
+    function resetProxyBase() {
+      savedProxyBase = "";
+      persistProxyBase("");
+      syncProxyUi();
+      setStatus(
+        backendStatus,
+        isLocalPreview()
+          ? "已恢复本地默认代理，正在检查服务状态..."
+          : "已清空云端代理地址，请重新填写 Render 服务地址。",
+        ""
+      );
+      checkBackendStatus();
+    }
+
+    sourceText.addEventListener("input", () => {
+      updateCharCount();
+      if (inputStatus.classList.contains("error")) {
+        setStatus(inputStatus, "输入 1 到 3 句即可。", "");
+      }
+    });
+
+    exampleButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        sourceText.value = button.dataset.example || "";
+        updateCharCount();
+        setStatus(inputStatus, "示例已填入。", "");
+        sourceText.focus();
+      });
+    });
+
+    translateBtn.addEventListener("click", handleTranslate);
+    clearBtn.addEventListener("click", clearInput);
+    playBtn.addEventListener("click", playVoice);
+    stopBtn.addEventListener("click", stopVoice);
+    copyBtn.addEventListener("click", copyResult);
+    saveProxyBtn.addEventListener("click", saveProxyBase);
+    resetProxyBtn.addEventListener("click", resetProxyBase);
+
+    if (queryProxy) {
+      savedProxyBase = normalizeProxyBase(queryProxy);
+      persistProxyBase(savedProxyBase);
+    } else {
+      savedProxyBase = normalizeProxyBase(window.localStorage.getItem(PROXY_STORAGE_KEY) || "");
+    }
+
+    resetResult();
+    updateCharCount();
+    syncProxyUi();
+    loadVoices();
+    checkBackendStatus();
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  </script>
+</body>
+</html>
