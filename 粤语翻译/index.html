@@ -423,34 +423,34 @@
   <main class="page">
     <header class="topbar">
       <section>
-        <span class="eyebrow">支持本地预览 + GitHub Pages / Render 混合部署</span>
+        <span class="eyebrow">支持本地预览 + Cloudflare Pages Functions 同源代理</span>
         <h1>普通话转地道粤语</h1>
-        <p class="lead">左边输入原句，右边查看粤语结果、语气说明和跟读版。页面支持本地同源代理，也支持在 GitHub Pages 上改填云端代理地址，浏览器端不再保存 API Key。</p>
+        <p class="lead">左边输入原句，右边查看粤语结果、语气说明和跟读版。页面默认请求当前站点的同源 `/api/*`，可直接适配本地预览和 Cloudflare Pages Functions；如需接入外部代理，也可以手动覆盖地址，浏览器端不保存 API Key。</p>
       </section>
 
       <aside class="card settings" aria-labelledby="settingsTitle">
-        <h2 id="settingsTitle">代理配置</h2>
-        <p class="subtle">本地预览时默认走当前域名下的同源代理；部署到 GitHub Pages 后，可在这里填写 Render 后端地址。</p>
-        <p class="subtle">Render 服务端负责保存 `OPENROUTER_API_KEY` 或 `GEMINI_API_KEY`，前端只保存代理地址。</p>
+        <h2 id="settingsTitle">接口入口</h2>
+        <p class="subtle">默认使用当前站点的同源 `/api/*`。本地预览和 Cloudflare Pages Functions 部署后无需额外填写地址。</p>
+        <p class="subtle">如果页面托管环境本身没有代理能力，也可以在这里覆盖为外部代理地址；密钥仍只保存在服务端。</p>
 
         <div class="field">
-          <label for="proxyBaseInput">云端代理地址</label>
+          <label for="proxyBaseInput">自定义代理地址（可选）</label>
           <input
             class="input"
             id="proxyBaseInput"
             type="url"
             inputmode="url"
-            placeholder="https://your-render-service.onrender.com"
+            placeholder="https://your-proxy-service.example.com"
             autocomplete="off"
           />
           <div class="row field-actions">
-            <button class="btn btn-secondary" id="saveProxyBtn" type="button">保存地址</button>
-            <button class="btn btn-secondary" id="resetProxyBtn" type="button">恢复本地默认</button>
+            <button class="btn btn-secondary" id="saveProxyBtn" type="button">保存覆盖地址</button>
+            <button class="btn btn-secondary" id="resetProxyBtn" type="button">改回同源 /api</button>
           </div>
         </div>
 
-        <p class="hint" id="activeProxyHint">当前将自动判断代理地址。</p>
-        <p class="status" id="backendStatus" role="status" aria-live="polite">正在检查代理状态...</p>
+        <p class="hint" id="activeProxyHint">当前默认使用同源接口。</p>
+        <p class="status" id="backendStatus" role="status" aria-live="polite">正在检查接口状态...</p>
       </aside>
     </header>
 
@@ -520,7 +520,7 @@
           <button class="btn btn-secondary" id="stopBtn" type="button">停止</button>
           <button class="btn btn-secondary" id="copyBtn" type="button">复制结果</button>
         </div>
-          <p class="status" id="resultStatus" role="status" aria-live="polite">代理就绪后即可发起翻译。</p>
+          <p class="status" id="resultStatus" role="status" aria-live="polite">接口就绪后即可发起翻译。</p>
         <p class="status" id="voiceStatus" role="status" aria-live="polite"></p>
         <p class="status" id="copyStatus" role="status" aria-live="polite"></p>
 
@@ -538,7 +538,6 @@
     const DEFAULT_READING = "生成后显示。";
     const DEFAULT_VOICE_MESSAGE = "翻译成功后可直接播放。";
     const PROXY_STORAGE_KEY = "cantonese_proxy_base_url";
-    const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
     const queryProxy = new URLSearchParams(window.location.search).get("proxy") || "";
 
     const sourceText = document.querySelector("#sourceText");
@@ -581,21 +580,13 @@
       return String(value || "").trim().replace(/\/+$/, "");
     }
 
-    function isLocalPreview() {
-      return LOCAL_HOSTS.has(window.location.hostname);
-    }
-
-    function getDefaultProxyBase() {
-      return isLocalPreview() ? window.location.origin : "";
-    }
-
     function getEffectiveProxyBase() {
-      return savedProxyBase || getDefaultProxyBase();
+      return savedProxyBase;
     }
 
     function buildApiUrl(path) {
       const base = getEffectiveProxyBase();
-      return base ? `${base}${path}` : "";
+      return base ? `${base}${path}` : path;
     }
 
     function persistProxyBase(base) {
@@ -610,14 +601,10 @@
       proxyBaseInput.value = savedProxyBase;
       const base = getEffectiveProxyBase();
       if (savedProxyBase) {
-        activeProxyHint.textContent = `当前云端代理：${base}`;
+        activeProxyHint.textContent = `当前自定义代理：${base}`;
         return;
       }
-      if (base) {
-        activeProxyHint.textContent = `当前本地默认代理：${base}`;
-        return;
-      }
-      activeProxyHint.textContent = "当前未配置代理地址。若页面部署在 GitHub Pages，请填写 Render 服务地址。";
+      activeProxyHint.textContent = "当前使用当前站点同源 /api 入口。本地预览和 Cloudflare Pages Functions 可直接工作；其他静态托管可在这里覆盖为外部代理地址。";
     }
 
     function setStatus(element, text, type) {
@@ -670,12 +657,6 @@
 
     async function requestTranslation(source) {
       const url = buildApiUrl(TRANSLATE_ENDPOINT);
-      if (!url) {
-        const configError = new Error("proxy_not_configured");
-        configError.code = "proxy_not_configured";
-        throw configError;
-      }
-
       const response = await fetch(url, {
         method: "POST",
         headers: {
@@ -708,9 +689,6 @@
       if (error && error.code === "validation_failed") {
         return "请输入 1 到 500 字的内容。";
       }
-      if (error && error.code === "proxy_not_configured") {
-        return "请先配置可访问的云端代理地址。";
-      }
       if (error && error.code === "server_not_configured") {
         return "服务端未配置可用的翻译密钥。";
       }
@@ -727,27 +705,20 @@
         return "翻译上游暂时不可用，请稍后重试。";
       }
       if (error && error.status === 404) {
-        return "代理地址可访问，但未找到 `/api/translate` 接口。";
+        return savedProxyBase
+          ? "自定义代理地址可访问，但未找到 `/api/translate` 接口。"
+          : "当前站点未提供 `/api/translate`。若不是本地预览或 Cloudflare Pages Functions，请填写外部代理地址。";
       }
       if (error instanceof TypeError) {
         return savedProxyBase
-          ? "无法连接云端代理，请检查 Render 地址和服务状态。"
-          : "无法连接本地代理，请先运行预览脚本。";
+          ? "无法连接自定义代理，请检查地址、服务状态和 CORS 配置。"
+          : "无法连接当前站点的同源代理，请确认本地预览已启动或 Cloudflare Pages Functions 已部署。";
       }
       return "翻译失败，请稍后重试。";
     }
 
     async function checkBackendStatus() {
       const url = buildApiUrl(HEALTH_ENDPOINT);
-      if (!url) {
-        setStatus(backendStatus, "当前未配置代理地址，请填写可访问的 Render 服务地址。", "error");
-        if (!currentResult) {
-          setStatus(resultStatus, "先配置代理地址，再发起翻译。", "error");
-        }
-        syncProxyUi();
-        return;
-      }
-
       try {
         const response = await fetch(url, { cache: "no-store" });
         if (!response.ok) {
@@ -760,14 +731,14 @@
             : data.provider === "gemini"
               ? "Gemini"
               : "已配置上游";
-          const proxyType = savedProxyBase ? "云端代理" : "本地同源代理";
+          const proxyType = savedProxyBase ? "自定义代理" : "同源代理";
           setStatus(backendStatus, `${proxyType}已就绪，当前上游：${provider}。`, "success");
           if (!currentResult) {
-            setStatus(resultStatus, "代理就绪，可以发起翻译。", "success");
+            setStatus(resultStatus, "接口就绪，可以发起翻译。", "success");
           }
           return;
         }
-        setStatus(backendStatus, "代理已可访问，但服务端未配置可用密钥。", "error");
+        setStatus(backendStatus, "接口已可访问，但服务端未配置可用密钥。", "error");
         if (!currentResult) {
           setStatus(resultStatus, "请先在服务端配置 OPENROUTER_API_KEY 或 GEMINI_API_KEY。", "error");
         }
@@ -775,12 +746,18 @@
         setStatus(
           backendStatus,
           savedProxyBase
-            ? "无法连接云端代理，请检查地址、Render 服务状态和 CORS 配置。"
-            : "未连接到本地代理，请先运行预览脚本。",
+            ? "无法连接自定义代理，请检查地址、服务状态和 CORS 配置。"
+            : "当前站点未就绪同源代理；本地预览请先运行脚本，Cloudflare Pages 请确认 Functions 与环境变量已部署。",
           "error"
         );
         if (!currentResult) {
-          setStatus(resultStatus, "当前无法访问代理接口。", "error");
+          setStatus(
+            resultStatus,
+            savedProxyBase
+              ? "当前无法访问自定义代理接口。"
+              : "当前站点未提供可用的同源代理，可填写外部代理地址继续使用。",
+            "error"
+          );
         }
       }
     }
@@ -796,7 +773,7 @@
       }
 
       setStatus(inputStatus, "请求已发出。", "");
-      setStatus(resultStatus, "代理正在请求翻译上游...", "");
+      setStatus(resultStatus, "接口正在请求翻译上游...", "");
       setStatus(voiceStatus, "", "");
       resetResult();
       resultChip.textContent = "翻译中";
@@ -814,7 +791,7 @@
         setStatus(inputStatus, getFriendlyErrorMessage(error), "error");
         setStatus(resultStatus, "本次请求未生成有效结果。", "error");
         if (error && error.code === "server_not_configured") {
-          setStatus(backendStatus, "代理已可访问，但服务端未配置可用密钥。", "error");
+          setStatus(backendStatus, "接口已可访问，但服务端未配置可用密钥。", "error");
         }
       } finally {
         setLoadingState(false);
@@ -918,7 +895,7 @@
     function saveProxyBase() {
       const normalized = normalizeProxyBase(proxyBaseInput.value);
       if (!normalized) {
-        setStatus(backendStatus, "请输入完整的云端代理地址，例如 https://your-render-service.onrender.com", "error");
+        setStatus(backendStatus, "请输入完整的自定义代理地址，例如 https://your-proxy-service.example.com", "error");
         return;
       }
 
@@ -935,7 +912,7 @@
       savedProxyBase = normalized;
       persistProxyBase(savedProxyBase);
       syncProxyUi();
-      setStatus(backendStatus, "云端代理地址已保存，正在检查服务状态...", "");
+      setStatus(backendStatus, "自定义代理地址已保存，正在检查服务状态...", "");
       checkBackendStatus();
     }
 
@@ -943,13 +920,7 @@
       savedProxyBase = "";
       persistProxyBase("");
       syncProxyUi();
-      setStatus(
-        backendStatus,
-        isLocalPreview()
-          ? "已恢复本地默认代理，正在检查服务状态..."
-          : "已清空云端代理地址，请重新填写 Render 服务地址。",
-        ""
-      );
+      setStatus(backendStatus, "已切回当前站点同源 /api，正在检查服务状态...", "");
       checkBackendStatus();
     }
 

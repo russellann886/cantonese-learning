@@ -1,6 +1,90 @@
 # 部署说明
 
-本文档说明如何将当前项目以“GitHub Pages 托管前端 + Render 托管代理后端”的方式部署上线。
+本文档说明如何部署当前项目。仓库现已支持 `Cloudflare Pages + Functions` 同源代理，也保留了 `GitHub Pages + Render` 的旧方案。
+
+## Cloudflare Pages + Functions（推荐）
+
+当前仓库已经包含：
+
+- `build-cloudflare-pages.sh`：生成 Cloudflare Pages 的静态产物到 `dist/`
+- `wrangler.toml`：声明 Cloudflare Pages 静态输出目录
+- `_routes.json`：仅让 `/api/*` 进入 Functions
+- `functions/api/health.js`：健康检查接口
+- `functions/api/translate.js`：翻译代理接口
+- `functions/_utils/translator.js`：Functions 共享上游请求逻辑
+
+### 架构说明
+
+- `Cloudflare Pages`：托管 `index.html`
+- `Cloudflare Pages Functions`：在同源路径下提供 `/api/health` 与 `/api/translate`
+- 浏览器端：默认直接请求当前站点 `/api/*`，不再需要额外填写 Cloudflare 自己的代理地址
+
+### Pages 项目配置
+
+如果当前 Git 仓库的根目录不是本项目目录，请在 Cloudflare Pages 后台把 `Root directory` 设为：
+
+```text
+粤语翻译
+```
+
+建议的构建配置：
+
+- `Framework preset`：`None`
+- `Build command`：`./build-cloudflare-pages.sh`
+- `Build output directory`：`dist`
+
+如果使用 `wrangler` 本地或 CI 构建，仓库里的 `wrangler.toml` 已包含：
+
+```toml
+compatibility_date = "2026-06-23"
+pages_build_output_dir = "dist"
+```
+
+### 需要配置的环境变量
+
+在 Cloudflare Pages 项目的 `Settings -> Environment variables` 中配置以下变量：
+
+- `OPENROUTER_API_KEY=<你的密钥>`
+- 或 `GEMINI_API_KEY=<你的密钥>`
+- 可选：`OPENROUTER_MODEL=openrouter/free`
+- 可选：`CORS_ALLOWED_ORIGINS=<允许跨域访问 Functions 的来源>`
+
+说明：
+
+- `OPENROUTER_API_KEY` 和 `GEMINI_API_KEY` 二选一即可；两者都存在时，当前逻辑优先使用 `OPENROUTER_API_KEY`
+- 页面本身走同源请求时不依赖 CORS
+- 只有在你希望把这个 Functions 代理给别的站点跨域调用时，才需要配置 `CORS_ALLOWED_ORIGINS`
+
+### 部署后验证
+
+部署完成后，直接访问：
+
+```text
+https://<your-pages-domain>/api/health
+```
+
+预期返回类似：
+
+```json
+{"ok":true,"configured":true,"provider":"openrouter","message":"proxy_ready"}
+```
+
+然后打开首页验证：
+
+1. 页面加载后应自动检查同源 `/api/health`
+2. 输入一条普通话并点击翻译
+3. 浏览器应直接请求同源 `/api/translate`
+4. 如果 Functions 已部署且密钥可用，页面无需填写任何代理地址
+
+### 外部代理覆盖
+
+前端仍保留“自定义代理地址”输入框，作用变为可选覆盖：
+
+- 默认留空：走当前站点同源 `/api/*`
+- 填入地址：改走外部代理，例如你自己的 Render 服务
+- 点击“改回同源 /api”：恢复默认的 Cloudflare Pages Functions / 本地预览入口
+
+## 旧方案：GitHub Pages + Render
 
 ## 部署架构
 
