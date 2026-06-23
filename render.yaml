@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: cantonese-translator-proxy
+    env: python
+    plan: free
+    autoDeploy: true
+    buildCommand: python3 -m py_compile proxy_server.py
+    startCommand: python3 proxy_server.py
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: OPENROUTER_MODEL
+        value: openrouter/free
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
