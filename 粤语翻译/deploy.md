@@ -46,6 +46,15 @@ Deploy command: 留空
 
 根目录的 `npm run build` 会把 `粤语翻译/dist` 同步到根目录 `dist`，并把 `粤语翻译/functions` 同步到根目录 `functions`，用于兼容 Cloudflare 当前按仓库根目录构建的设置。
 
+仓库根目录还包含一个兜底用的 `wrangler.toml`。如果 Cloudflare 后台仍然执行了 `npx wrangler deploy`，Wrangler 会从该配置读取：
+
+```toml
+[assets]
+directory = "./dist"
+```
+
+这可以避免 Wrangler 把整个仓库 `/opt/buildhome/repo` 当作静态资源目录上传，从而规避 `node_modules/workerd` 超过 25 MiB 的错误。不过推荐配置仍然是把 `Deploy command` 留空，让 Cloudflare Pages 自动部署构建产物。
+
 如果使用 `wrangler` 本地或 CI 构建，仓库里的 `wrangler.toml` 已包含：
 
 ```toml
