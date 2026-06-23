@@ -32,6 +32,19 @@
 - `Framework preset`：`None`
 - `Build command`：`./build-cloudflare-pages.sh`
 - `Build output directory`：`dist`
+- `Deploy command`：留空，不要填写 `npx wrangler deploy`
+
+`Deploy command` 必须留空。Cloudflare Pages 会在构建完成后自动部署 `dist` 和 `functions`，如果额外填写 `npx wrangler deploy`，Wrangler 会把整个仓库当成 Workers 静态资源目录上传，可能连 `node_modules` 一起扫描并触发 `Asset too large`。
+
+如果 Cloudflare 的 `Root directory` 留空，则使用仓库根目录兼容配置：
+
+```text
+Build command: npm run build
+Build output directory: dist
+Deploy command: 留空
+```
+
+根目录的 `npm run build` 会把 `粤语翻译/dist` 同步到根目录 `dist`，并把 `粤语翻译/functions` 同步到根目录 `functions`，用于兼容 Cloudflare 当前按仓库根目录构建的设置。
 
 如果使用 `wrangler` 本地或 CI 构建，仓库里的 `wrangler.toml` 已包含：
 

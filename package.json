@@ -1,5 +1,5 @@
 {
   "scripts": {
-    "build": "bash ./粤语翻译/build-cloudflare-pages.sh && rm -rf dist && mkdir -p dist && cp -R ./粤语翻译/dist/. ./dist/"
+    "build": "bash ./粤语翻译/build-cloudflare-pages.sh && rm -rf dist functions && mkdir -p dist && cp -R ./粤语翻译/dist/. ./dist/ && cp -R ./粤语翻译/functions ./functions"
   }
 }
