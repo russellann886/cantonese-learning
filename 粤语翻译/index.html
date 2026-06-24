@@ -249,6 +249,15 @@
       color: var(--success);
     }
 
+    .audio-wrap {
+      margin-top: 14px;
+    }
+
+    .audio-player {
+      width: 100%;
+      min-height: 44px;
+    }
+
     .workspace {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(360px, 0.95fr);
@@ -520,6 +529,9 @@
           <button class="btn btn-secondary" id="stopBtn" type="button">停止</button>
           <button class="btn btn-secondary" id="copyBtn" type="button">复制结果</button>
         </div>
+        <div class="audio-wrap" id="audioWrap" hidden>
+          <audio class="audio-player" id="audioPlayer" controls preload="none"></audio>
+        </div>
           <p class="status" id="resultStatus" role="status" aria-live="polite">接口就绪后即可发起翻译。</p>
         <p class="status" id="voiceStatus" role="status" aria-live="polite"></p>
         <p class="status" id="copyStatus" role="status" aria-live="polite"></p>
@@ -533,10 +545,11 @@
   <script>
     const TRANSLATE_ENDPOINT = "/api/translate";
     const HEALTH_ENDPOINT = "/api/health";
+    const TTS_ENDPOINT = "/api/tts";
     const DEFAULT_RESULT = "未生成结果。";
     const DEFAULT_TONE = "生成后显示。";
     const DEFAULT_READING = "生成后显示。";
-    const DEFAULT_VOICE_MESSAGE = "翻译成功后可直接播放。";
+    const DEFAULT_VOICE_MESSAGE = "翻译成功后可请求服务端音频。";
     const PROXY_STORAGE_KEY = "cantonese_proxy_base_url";
     const queryProxy = new URLSearchParams(window.location.search).get("proxy") || "";
 
@@ -553,6 +566,8 @@
     const playBtn = document.querySelector("#playBtn");
     const stopBtn = document.querySelector("#stopBtn");
     const copyBtn = document.querySelector("#copyBtn");
+    const audioWrap = document.querySelector("#audioWrap");
+    const audioPlayer = document.querySelector("#audioPlayer");
     const voiceStatus = document.querySelector("#voiceStatus");
     const copyStatus = document.querySelector("#copyStatus");
     const backendStatus = document.querySelector("#backendStatus");
@@ -565,8 +580,11 @@
     let currentResult = "";
     let currentReading = "";
     let isLoading = false;
-    let voices = [];
     let savedProxyBase = "";
+    let isAudioLoading = false;
+    let currentAudioUrl = "";
+    let currentAudioText = "";
+    let audioRequestController = null;
 
     function updateCharCount() {
       charCount.textContent = `${sourceText.value.length} / 500`;
@@ -616,6 +634,7 @@
     }
 
     function resetResult() {
+      resetAudio({ clearStatus: false });
       currentResult = "";
       currentReading = "";
       resultText.textContent = DEFAULT_RESULT;
@@ -638,14 +657,13 @@
 
     function updateActionState() {
       const hasResult = Boolean(currentResult);
-      const speechSupported = "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
 
-      playBtn.disabled = !hasResult || !speechSupported;
-      stopBtn.disabled = !speechSupported;
+      playBtn.disabled = !hasResult || isLoading || isAudioLoading;
+      stopBtn.disabled = !isAudioLoading && !currentAudioUrl;
       copyBtn.disabled = !hasResult;
-      translateBtn.disabled = isLoading;
+      translateBtn.disabled = isLoading || isAudioLoading;
       exampleButtons.forEach((button) => {
-        button.disabled = isLoading;
+        button.disabled = isLoading || isAudioLoading;
       });
     }
 
@@ -685,6 +703,43 @@
       return response.json();
     }
 
+    async function requestSpeech(text) {
+      const url = buildApiUrl(TTS_ENDPOINT);
+      audioRequestController = new AbortController();
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ text }),
+          signal: audioRequestController.signal
+        });
+
+        if (!response.ok) {
+          let errorBody = null;
+          try {
+            errorBody = await response.json();
+          } catch (parseError) {
+            errorBody = null;
+          }
+
+          const message = errorBody && errorBody.error && errorBody.error.message
+            ? errorBody.error.message
+            : `HTTP_${response.status}`;
+          const requestError = new Error(message);
+          requestError.status = response.status;
+          requestError.code = errorBody && errorBody.error ? errorBody.error.code : "";
+          throw requestError;
+        }
+
+        return response.blob();
+      } finally {
+        audioRequestController = null;
+      }
+    }
+
     function getFriendlyErrorMessage(error) {
       if (error && error.code === "validation_failed") {
         return "请输入 1 到 500 字的内容。";
@@ -715,6 +770,35 @@
           : "无法连接当前站点的同源代理，请确认本地预览已启动或 Cloudflare Pages Functions 已部署。";
       }
       return "翻译失败，请稍后重试。";
+    }
+
+    function getFriendlyTtsErrorMessage(error) {
+      if (error && error.name === "AbortError") {
+        return "已取消语音生成。";
+      }
+      if (error && error.code === "validation_failed") {
+        return "当前文本过长，暂时无法生成语音。";
+      }
+      if (error && error.code === "rate_limited") {
+        return "语音请求过于频繁，请稍后再试。";
+      }
+      if (error && error.code === "network_error") {
+        return "语音代理连接上游失败，请稍后重试。";
+      }
+      if (error && (error.code === "upstream_unavailable" || error.code === "upstream_invalid_response")) {
+        return "语音上游暂时不可用，请稍后重试。";
+      }
+      if (error && error.status === 404) {
+        return savedProxyBase
+          ? "自定义代理地址可访问，但未找到 `/api/tts` 接口。"
+          : "当前站点未提供 `/api/tts`。请确认 Cloudflare Pages Functions 或本地预览已更新。";
+      }
+      if (error instanceof TypeError) {
+        return savedProxyBase
+          ? "无法连接自定义代理的语音接口，请检查地址、服务状态和 CORS 配置。"
+          : "无法连接当前站点的同源语音接口，请确认部署已包含 `/api/tts`。";
+      }
+      return "语音生成失败，请稍后重试。";
     }
 
     async function checkBackendStatus() {
@@ -798,72 +882,101 @@
       }
     }
 
-    function pickVoice() {
-      const priorities = ["yue-HK", "zh-HK", "zh-TW", "zh-CN", "zh"];
-      for (const lang of priorities) {
-        const matched = voices.find((voice) => voice.lang.toLowerCase().replace(/_/g, "-").startsWith(lang.toLowerCase()));
-        if (matched) {
-          return matched;
-        }
+    function clearAudioSource() {
+      if (currentAudioUrl) {
+        URL.revokeObjectURL(currentAudioUrl);
+        currentAudioUrl = "";
       }
-      return voices.find((voice) => /cantonese|hong kong|粤|粵|中文|chinese/i.test(`${voice.name} ${voice.lang}`));
+      currentAudioText = "";
+      audioPlayer.pause();
+      audioPlayer.removeAttribute("src");
+      audioPlayer.load();
+      audioWrap.hidden = true;
     }
 
-    function loadVoices() {
-      if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
-        setStatus(voiceStatus, "当前浏览器不支持语音播放。", "error");
-        updateActionState();
-        return;
+    function resetAudio(options = {}) {
+      const { clearStatus = true } = options;
+      if (audioRequestController) {
+        audioRequestController.abort();
       }
-
-      voices = window.speechSynthesis.getVoices();
-      if (!currentResult) {
+      isAudioLoading = false;
+      clearAudioSource();
+      if (clearStatus) {
         setStatus(voiceStatus, DEFAULT_VOICE_MESSAGE, "");
       }
       updateActionState();
     }
 
-    function playVoice() {
+    async function playVoice() {
       if (!currentResult) {
         setStatus(voiceStatus, "请先生成结果。", "error");
         return;
       }
-      if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
-        setStatus(voiceStatus, "当前浏览器不支持语音播放。", "error");
+
+      const textToRead = currentReading || currentResult;
+      if (!textToRead) {
+        setStatus(voiceStatus, "当前没有可播放的跟读文本。", "error");
         return;
       }
 
-      window.speechSynthesis.cancel();
-      if (voices.length === 0) {
-        voices = window.speechSynthesis.getVoices();
+      if (currentAudioUrl && currentAudioText === textToRead) {
+        audioWrap.hidden = false;
+        try {
+          await audioPlayer.play();
+          setStatus(voiceStatus, "正在播放服务端音频。", "");
+        } catch (error) {
+          setStatus(voiceStatus, "音频已生成，请点击下方播放器开始播放。", "");
+        }
+        return;
       }
 
-      const utterance = new SpeechSynthesisUtterance(currentReading || currentResult);
-      const voice = pickVoice();
-      if (voice) {
-        utterance.voice = voice;
-        utterance.lang = voice.lang || "zh-HK";
-        setStatus(voiceStatus, `正在播放：${voice.name}`, "");
-      } else {
-        utterance.lang = "zh-HK";
-        setStatus(voiceStatus, "未找到明确粤语语音，已改用最接近的中文语音。", "");
+      isAudioLoading = true;
+      updateActionState();
+      setStatus(voiceStatus, "正在请求服务端音频...", "");
+
+      try {
+        const audioBlob = await requestSpeech(textToRead);
+        if (!audioBlob || audioBlob.size === 0) {
+          throw new Error("empty_audio");
+        }
+
+        clearAudioSource();
+        currentAudioUrl = URL.createObjectURL(audioBlob);
+        currentAudioText = textToRead;
+        audioPlayer.src = currentAudioUrl;
+        audioWrap.hidden = false;
+
+        try {
+          await audioPlayer.play();
+          setStatus(voiceStatus, "正在播放服务端音频。", "");
+        } catch (playError) {
+          setStatus(voiceStatus, "音频已生成，请点击下方播放器开始播放。", "");
+        }
+      } catch (error) {
+        setStatus(voiceStatus, getFriendlyTtsErrorMessage(error), "error");
+      } finally {
+        isAudioLoading = false;
+        updateActionState();
       }
-      utterance.rate = 0.9;
-      utterance.pitch = 1;
-      utterance.onend = () => {
-        setStatus(voiceStatus, "播放完成。", "success");
-      };
-      utterance.onerror = () => {
-        setStatus(voiceStatus, "语音播放失败。", "error");
-      };
-      window.speechSynthesis.speak(utterance);
     }
 
     function stopVoice() {
-      if ("speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-        setStatus(voiceStatus, "已停止播放。", "");
+      if (audioRequestController) {
+        audioRequestController.abort();
+        isAudioLoading = false;
+        updateActionState();
+        setStatus(voiceStatus, "已取消语音生成。", "");
+        return;
       }
+
+      if (currentAudioUrl) {
+        audioPlayer.pause();
+        audioPlayer.currentTime = 0;
+        setStatus(voiceStatus, "已停止播放。", "");
+        return;
+      }
+
+      setStatus(voiceStatus, "当前没有正在播放的音频。", "");
     }
 
     async function copyResult() {
@@ -958,11 +1071,14 @@
     resetResult();
     updateCharCount();
     syncProxyUi();
-    loadVoices();
+    setStatus(voiceStatus, DEFAULT_VOICE_MESSAGE, "");
     checkBackendStatus();
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
+    audioPlayer.addEventListener("ended", () => {
+      setStatus(voiceStatus, "播放完成。", "success");
+    });
+    audioPlayer.addEventListener("error", () => {
+      setStatus(voiceStatus, "音频播放失败。", "error");
+    });
   </script>
 </body>
 </html>

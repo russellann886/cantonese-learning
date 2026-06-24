@@ -2,6 +2,8 @@ const MAX_SOURCE_LENGTH = 500;
 const GEMINI_MODEL = "gemini-2.0-flash";
 const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
 const REQUEST_TIMEOUT_MS = 20_000;
+const DEFAULT_TTS_LOCALE = "yue";
+const MAX_TTS_CHUNK_LENGTH = 180;
 
 export class AppError extends Error {
   constructor(code, message, status, options = {}) {
@@ -76,7 +78,7 @@ export function getProxyHealth(env) {
 }
 
 export async function translateSource(source, env) {
-  const normalizedSource = validateSource(source);
+  const normalizedSource = validateText(source);
   const { provider, apiKey } = resolveProviderConfig(env);
 
   if (!provider || !apiKey) {
@@ -113,6 +115,72 @@ export async function translateSource(source, env) {
   throw new AppError("server_not_configured", "服务端未配置可用的翻译上游密钥。", 503);
 }
 
+export async function synthesizeSpeech(text, request, env) {
+  const normalizedText = validateText(text);
+  const chunks = splitTextForSpeech(normalizedText);
+
+  try {
+    const buffers = [];
+
+    for (const chunk of chunks) {
+      const endpoint = new URL("https://translate.google.com/translate_tts");
+      endpoint.searchParams.set("ie", "UTF-8");
+      endpoint.searchParams.set("client", "tw-ob");
+      endpoint.searchParams.set("tl", String(env.TTS_LOCALE || DEFAULT_TTS_LOCALE));
+      endpoint.searchParams.set("q", chunk);
+
+      const response = await fetchWithTimeout(endpoint.toString(), {
+        method: "GET",
+        headers: {
+          Accept: "audio/mpeg,audio/*;q=0.9,*/*;q=0.1",
+        },
+      });
+
+      if (!response.ok) {
+        throw await mapTtsUpstreamHttpError(response);
+      }
+
+      const audioBytes = new Uint8Array(await response.arrayBuffer());
+      if (!audioBytes.byteLength) {
+        throw new AppError(
+          "upstream_invalid_response",
+          "语音上游返回了不可用的音频。",
+          502
+        );
+      }
+      buffers.push(audioBytes);
+    }
+
+    const mergedAudio = concatUint8Arrays(buffers);
+    const corsHeaders = buildCorsHeaders(request, env);
+
+    return new Response(mergedAudio, {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        "content-type": "audio/mpeg",
+        "content-length": String(mergedAudio.byteLength),
+        "content-disposition": 'inline; filename="cantonese-tts.mp3"',
+        "cache-control": "no-store",
+      },
+    });
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    if (error?.name === "AbortError") {
+      throw new AppError(
+        "network_error",
+        "连接语音上游失败，请检查网络后重试。",
+        502
+      );
+    }
+
+    throw new AppError("internal_error", "服务内部出现异常。", 500);
+  }
+}
+
 function buildPrompt(source) {
   return [
     "请把下面的普通话改写成香港日常口语粤语。",
@@ -142,7 +210,7 @@ function resolveProviderConfig(env) {
   return { provider: null, apiKey: "" };
 }
 
-function validateSource(source) {
+function validateText(source) {
   if (typeof source !== "string") {
     throw new AppError(
       "validation_failed",
@@ -161,6 +229,46 @@ function validateSource(source) {
   }
 
   return normalized;
+}
+
+function splitTextForSpeech(text) {
+  if (text.length <= MAX_TTS_CHUNK_LENGTH) {
+    return [text];
+  }
+
+  const chunks = [];
+  let remaining = text;
+
+  while (remaining.length > MAX_TTS_CHUNK_LENGTH) {
+    const splitIndex = findSpeechBreakIndex(remaining);
+    chunks.push(remaining.slice(0, splitIndex).trim());
+    remaining = remaining.slice(splitIndex).trim();
+  }
+
+  if (remaining) {
+    chunks.push(remaining);
+  }
+
+  return chunks.filter(Boolean);
+}
+
+function findSpeechBreakIndex(text) {
+  const chunk = text.slice(0, MAX_TTS_CHUNK_LENGTH + 1);
+  const breakChars = ["。", "！", "？", "；", "，", ".", "!", "?", ";", ",", " "];
+
+  let bestIndex = -1;
+  for (const char of breakChars) {
+    const index = chunk.lastIndexOf(char);
+    if (index > bestIndex) {
+      bestIndex = index;
+    }
+  }
+
+  if (bestIndex >= 0) {
+    return bestIndex + 1;
+  }
+
+  return MAX_TTS_CHUNK_LENGTH;
 }
 
 async function fetchTranslationFromGemini(source, apiKey) {
@@ -333,6 +441,41 @@ async function mapUpstreamHttpError(response) {
   );
 }
 
+async function mapTtsUpstreamHttpError(response) {
+  let upstreamMessage = "";
+
+  try {
+    upstreamMessage = (await response.text()).trim();
+  } catch {
+    upstreamMessage = "";
+  }
+
+  if (response.status === 429) {
+    return new AppError(
+      "rate_limited",
+      "当前语音上游限流，请稍后再试。",
+      502,
+      { upstreamStatus: response.status }
+    );
+  }
+
+  if (response.status >= 500) {
+    return new AppError(
+      "upstream_unavailable",
+      "语音上游暂时不可用，请稍后重试。",
+      502,
+      { upstreamStatus: response.status }
+    );
+  }
+
+  return new AppError(
+    "upstream_request_failed",
+    upstreamMessage || "请求语音上游失败。",
+    502,
+    { upstreamStatus: response.status }
+  );
+}
+
 function extractGeminiText(data) {
   const candidates = data?.candidates || [];
   const parts = candidates[0]?.content?.parts || [];
@@ -402,4 +545,17 @@ function normalizePayload(payload) {
     tone_note: toneNote,
     reading_version: readingVersion,
   };
+}
+
+function concatUint8Arrays(chunks) {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const merged = new Uint8Array(totalLength);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return merged;
 }

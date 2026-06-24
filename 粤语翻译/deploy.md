@@ -11,12 +11,13 @@
 - `_routes.json`：仅让 `/api/*` 进入 Functions
 - `functions/api/health.js`：健康检查接口
 - `functions/api/translate.js`：翻译代理接口
+- `functions/api/tts.js`：服务端语音接口，返回可直接播放的音频文件
 - `functions/_utils/translator.js`：Functions 共享上游请求逻辑
 
 ### 架构说明
 
 - `Cloudflare Pages`：托管 `index.html`
-- `Cloudflare Pages Functions`：在同源路径下提供 `/api/health` 与 `/api/translate`
+- `Cloudflare Pages Functions`：在同源路径下提供 `/api/health`、`/api/translate` 与 `/api/tts`
 - 浏览器端：默认直接请求当前站点 `/api/*`，不再需要额外填写 Cloudflare 自己的代理地址
 
 ### Pages 项目配置
@@ -69,11 +70,13 @@ pages_build_output_dir = "dist"
 - `OPENROUTER_API_KEY=<你的密钥>`
 - 或 `GEMINI_API_KEY=<你的密钥>`
 - 可选：`OPENROUTER_MODEL=openrouter/free`
+- 可选：`TTS_LOCALE=yue`
 - 可选：`CORS_ALLOWED_ORIGINS=<允许跨域访问 Functions 的来源>`
 
 说明：
 
 - `OPENROUTER_API_KEY` 和 `GEMINI_API_KEY` 二选一即可；两者都存在时，当前逻辑优先使用 `OPENROUTER_API_KEY`
+- `/api/tts` 默认通过服务端转发 Google TTS，返回 `audio/mpeg`，不依赖浏览器本地 `speechSynthesis`
 - 页面本身走同源请求时不依赖 CORS
 - 只有在你希望把这个 Functions 代理给别的站点跨域调用时，才需要配置 `CORS_ALLOWED_ORIGINS`
 

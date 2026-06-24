@@ -17,6 +17,8 @@ GEMINI_MODEL = "gemini-2.0-flash"
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
 REQUEST_TIMEOUT_SECONDS = 20
 CORS_ALLOWED_ORIGINS = os.environ.get("CORS_ALLOWED_ORIGINS", "").strip()
+TTS_LOCALE = os.environ.get("TTS_LOCALE", "yue").strip() or "yue"
+MAX_TTS_CHUNK_LENGTH = 180
 
 
 def build_prompt(source: str) -> str:
@@ -179,6 +181,76 @@ def fetch_translation(source: str, provider: str, api_key: str) -> dict:
     raise ValueError("server_not_configured")
 
 
+def split_text_for_speech(text: str) -> list[str]:
+    if len(text) <= MAX_TTS_CHUNK_LENGTH:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+    while len(remaining) > MAX_TTS_CHUNK_LENGTH:
+        split_index = find_speech_break_index(remaining)
+        chunks.append(remaining[:split_index].strip())
+        remaining = remaining[split_index:].strip()
+
+    if remaining:
+        chunks.append(remaining)
+
+    return [chunk for chunk in chunks if chunk]
+
+
+def find_speech_break_index(text: str) -> int:
+    sample = text[: MAX_TTS_CHUNK_LENGTH + 1]
+    break_chars = ["。", "！", "？", "；", "，", ".", "!", "?", ";", ",", " "]
+    best_index = -1
+    for char in break_chars:
+        index = sample.rfind(char)
+        if index > best_index:
+            best_index = index
+
+    if best_index >= 0:
+        return best_index + 1
+    return MAX_TTS_CHUNK_LENGTH
+
+
+def fetch_speech_chunk(text: str) -> bytes:
+    query = parse.urlencode(
+        {
+            "ie": "UTF-8",
+            "client": "tw-ob",
+            "tl": TTS_LOCALE,
+            "q": text,
+        }
+    )
+    endpoint = f"https://translate.google.com/translate_tts?{query}"
+    req = request.Request(
+        endpoint,
+        headers={
+            "Accept": "audio/mpeg,audio/*;q=0.9,*/*;q=0.1",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+            ),
+        },
+        method="GET",
+    )
+
+    with request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+        audio_bytes = response.read()
+
+    if not audio_bytes:
+        raise ValueError("empty_audio")
+
+    return audio_bytes
+
+
+def fetch_speech_audio(text: str) -> bytes:
+    audio_chunks = [fetch_speech_chunk(chunk) for chunk in split_text_for_speech(text)]
+    merged = b"".join(audio_chunks)
+    if not merged:
+        raise ValueError("empty_audio")
+    return merged
+
+
 class AppHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(SCRIPT_DIR), **kwargs)
@@ -213,15 +285,21 @@ class AppHandler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
-        if self.path != "/api/translate":
-            return self._write_json(
-                HTTPStatus.NOT_FOUND,
-                {"error": {"code": "not_found", "message": "未找到可用接口。"}},
-            )
+        if self.path == "/api/translate":
+            return self._handle_translate()
 
+        if self.path == "/api/tts":
+            return self._handle_tts()
+
+        return self._write_json(
+            HTTPStatus.NOT_FOUND,
+            {"error": {"code": "not_found", "message": "未找到可用接口。"}},
+        )
+
+    def _handle_translate(self):
         try:
             body = self._read_json_body()
-            source = self._validate_source(body)
+            source = self._validate_text(body.get("source", ""))
             provider, api_key = resolve_provider_config()
             if not provider or not api_key:
                 return self._write_json(
@@ -268,60 +346,78 @@ class AppHandler(SimpleHTTPRequestHandler):
                 {"error": {"code": "internal_error", "message": "服务内部出现异常。"}},
             )
         except error.HTTPError as exc:
-            status = exc.code
-            upstream_message = ""
-            try:
-                upstream_data = json.loads(exc.read().decode("utf-8"))
-                upstream_message = (
-                    upstream_data.get("error", {}).get("message", "")
-                    if isinstance(upstream_data, dict)
-                    else ""
-                )
-            except Exception:
-                upstream_message = ""
+            return self._write_translation_http_error(exc)
+        except (error.URLError, TimeoutError, socket.timeout):
+            return self._write_json(
+                HTTPStatus.BAD_GATEWAY,
+                {
+                    "error": {
+                        "code": "network_error",
+                        "message": "连接翻译上游失败，请检查网络后重试。",
+                    }
+                },
+            )
+        except Exception:
+            return self._write_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": {"code": "internal_error", "message": "服务内部出现异常。"}},
+            )
 
-            normalized_message = upstream_message.lower()
-            if status == 400 and (
-                "api key not valid" in normalized_message
-                or "invalid api key" in normalized_message
-                or "authentication" in normalized_message
-            ):
+    def _handle_tts(self):
+        try:
+            body = self._read_json_body()
+            text = self._validate_text(body.get("text") or body.get("source", ""))
+            audio_bytes = fetch_speech_audio(text)
+            return self._write_binary(HTTPStatus.OK, audio_bytes, "audio/mpeg")
+        except ValueError as exc:
+            code = str(exc)
+            if code == "invalid_json_body":
+                return self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": {"code": "invalid_json_body", "message": "请求体必须是合法 JSON。"}},
+                )
+            if code == "validation_failed":
+                return self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "error": {
+                            "code": "validation_failed",
+                            "message": f"text 必须是 1 到 {MAX_SOURCE_LENGTH} 字的文本。",
+                        }
+                    },
+                )
+            if code == "empty_audio":
                 return self._write_json(
                     HTTPStatus.BAD_GATEWAY,
                     {
                         "error": {
-                            "code": "auth_failed",
-                            "message": "上游认证失败，请检查服务端密钥配置。",
+                            "code": "upstream_invalid_response",
+                            "message": "语音上游返回了不可用的音频。",
                         }
                     },
                 )
-            if status in {401, 403}:
-                return self._write_json(
-                    HTTPStatus.BAD_GATEWAY,
-                    {
-                        "error": {
-                            "code": "auth_failed",
-                            "message": "上游认证失败，请检查服务端密钥配置。",
-                        }
-                    },
-                )
-            if status == 429:
+            return self._write_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": {"code": "internal_error", "message": "服务内部出现异常。"}},
+            )
+        except error.HTTPError as exc:
+            if exc.code == 429:
                 return self._write_json(
                     HTTPStatus.BAD_GATEWAY,
                     {
                         "error": {
                             "code": "rate_limited",
-                            "message": "当前上游限流，请稍后再试。",
+                            "message": "当前语音上游限流，请稍后再试。",
                         }
                     },
                 )
-            if status >= 500:
+            if exc.code >= 500:
                 return self._write_json(
                     HTTPStatus.BAD_GATEWAY,
                     {
                         "error": {
                             "code": "upstream_unavailable",
-                            "message": "翻译上游暂时不可用，请稍后重试。",
+                            "message": "语音上游暂时不可用，请稍后重试。",
                         }
                     },
                 )
@@ -330,7 +426,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 {
                     "error": {
                         "code": "upstream_request_failed",
-                        "message": upstream_message or "请求翻译上游失败。",
+                        "message": "请求语音上游失败。",
                     }
                 },
             )
@@ -340,7 +436,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 {
                     "error": {
                         "code": "network_error",
-                        "message": "连接翻译上游失败，请检查网络后重试。",
+                        "message": "连接语音上游失败，请检查网络后重试。",
                     }
                 },
             )
@@ -363,8 +459,75 @@ class AppHandler(SimpleHTTPRequestHandler):
             raise ValueError("invalid_json_body")
         return data
 
-    def _validate_source(self, body: dict) -> str:
-        source = body.get("source", "")
+    def _write_translation_http_error(self, exc: error.HTTPError):
+        status = exc.code
+        upstream_message = ""
+        try:
+            upstream_data = json.loads(exc.read().decode("utf-8"))
+            upstream_message = (
+                upstream_data.get("error", {}).get("message", "")
+                if isinstance(upstream_data, dict)
+                else ""
+            )
+        except Exception:
+            upstream_message = ""
+
+        normalized_message = upstream_message.lower()
+        if status == 400 and (
+            "api key not valid" in normalized_message
+            or "invalid api key" in normalized_message
+            or "authentication" in normalized_message
+        ):
+            return self._write_json(
+                HTTPStatus.BAD_GATEWAY,
+                {
+                    "error": {
+                        "code": "auth_failed",
+                        "message": "上游认证失败，请检查服务端密钥配置。",
+                    }
+                },
+            )
+        if status in {401, 403}:
+            return self._write_json(
+                HTTPStatus.BAD_GATEWAY,
+                {
+                    "error": {
+                        "code": "auth_failed",
+                        "message": "上游认证失败，请检查服务端密钥配置。",
+                    }
+                },
+            )
+        if status == 429:
+            return self._write_json(
+                HTTPStatus.BAD_GATEWAY,
+                {
+                    "error": {
+                        "code": "rate_limited",
+                        "message": "当前上游限流，请稍后再试。",
+                    }
+                },
+            )
+        if status >= 500:
+            return self._write_json(
+                HTTPStatus.BAD_GATEWAY,
+                {
+                    "error": {
+                        "code": "upstream_unavailable",
+                        "message": "翻译上游暂时不可用，请稍后重试。",
+                    }
+                },
+            )
+        return self._write_json(
+            HTTPStatus.BAD_GATEWAY,
+            {
+                "error": {
+                    "code": "upstream_request_failed",
+                    "message": upstream_message or "请求翻译上游失败。",
+                }
+            },
+        )
+
+    def _validate_text(self, source: str) -> str:
         if not isinstance(source, str):
             raise ValueError("validation_failed")
         normalized = " ".join(source.split()).strip()
@@ -380,6 +543,15 @@ class AppHandler(SimpleHTTPRequestHandler):
         self._write_cors_headers()
         self.end_headers()
         self.wfile.write(body)
+
+    def _write_binary(self, status: HTTPStatus, payload: bytes, content_type: str):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Content-Disposition", 'inline; filename="cantonese-tts.mp3"')
+        self._write_cors_headers()
+        self.end_headers()
+        self.wfile.write(payload)
 
     def _write_cors_headers(self):
         allow_all, allowed_origins = resolve_allowed_origins()
