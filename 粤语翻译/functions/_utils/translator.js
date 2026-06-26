@@ -4,6 +4,8 @@ const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
 const REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_TTS_LOCALE = "yue";
 const MAX_TTS_CHUNK_LENGTH = 180;
+const DEFAULT_HISTORY_LIMIT = 20;
+const MAX_HISTORY_LIMIT = 100;
 
 export class AppError extends Error {
   constructor(code, message, status, options = {}) {
@@ -73,6 +75,7 @@ export function getProxyHealth(env) {
     ok: true,
     configured: Boolean(apiKey),
     provider: provider || "none",
+    history_enabled: Boolean(resolveHistoryDatabase(env)),
     message: "proxy_ready",
   };
 }
@@ -181,6 +184,72 @@ export async function synthesizeSpeech(text, request, env) {
   }
 }
 
+export async function saveTranslationHistory(source, payload, env) {
+  const db = resolveHistoryDatabase(env);
+  if (!db) {
+    return false;
+  }
+
+  const normalizedSource = validateText(source);
+  const normalizedPayload = normalizePayload(payload);
+
+  await db
+    .prepare(
+      `INSERT INTO translation_history (
+        source,
+        cantonese,
+        tone_note,
+        reading_version,
+        provider
+      ) VALUES (?1, ?2, ?3, ?4, ?5)`
+    )
+    .bind(
+      normalizedSource,
+      normalizedPayload.cantonese,
+      normalizedPayload.tone_note,
+      normalizedPayload.reading_version,
+      resolveProviderConfig(env).provider || "none"
+    )
+    .run();
+
+  return true;
+}
+
+export async function getTranslationHistory(request, env) {
+  const db = resolveHistoryDatabase(env);
+  if (!db) {
+    throw new AppError(
+      "database_not_configured",
+      "服务端未绑定可用的 D1 数据库。",
+      503
+    );
+  }
+
+  const url = new URL(request.url);
+  const limit = parseHistoryLimit(url.searchParams.get("limit"));
+  const response = await db
+    .prepare(
+      `SELECT
+        id,
+        source,
+        cantonese,
+        tone_note,
+        reading_version,
+        provider,
+        created_at
+      FROM translation_history
+      ORDER BY id DESC
+      LIMIT ?1`
+    )
+    .bind(limit)
+    .all();
+
+  return {
+    items: Array.isArray(response?.results) ? response.results : [],
+    limit,
+  };
+}
+
 function buildPrompt(source) {
   return [
     "请把下面的普通话改写成香港日常口语粤语。",
@@ -210,6 +279,10 @@ function resolveProviderConfig(env) {
   return { provider: null, apiKey: "" };
 }
 
+function resolveHistoryDatabase(env) {
+  return env && typeof env === "object" && env.DB ? env.DB : null;
+}
+
 function validateText(source) {
   if (typeof source !== "string") {
     throw new AppError(
@@ -229,6 +302,23 @@ function validateText(source) {
   }
 
   return normalized;
+}
+
+function parseHistoryLimit(rawValue) {
+  if (rawValue == null || rawValue === "") {
+    return DEFAULT_HISTORY_LIMIT;
+  }
+
+  const parsed = Number.parseInt(String(rawValue), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new AppError(
+      "validation_failed",
+      `limit 必须是 1 到 ${MAX_HISTORY_LIMIT} 的整数。`,
+      400
+    );
+  }
+
+  return Math.min(parsed, MAX_HISTORY_LIMIT);
 }
 
 function splitTextForSpeech(text) {

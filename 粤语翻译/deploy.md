@@ -11,13 +11,15 @@
 - `_routes.json`：仅让 `/api/*` 进入 Functions
 - `functions/api/health.js`：健康检查接口
 - `functions/api/translate.js`：翻译代理接口
+- `functions/api/history.js`：翻译历史记录接口
 - `functions/api/tts.js`：服务端语音接口，返回可直接播放的音频文件
 - `functions/_utils/translator.js`：Functions 共享上游请求逻辑
+- `sql/001_create_translation_history.sql`：D1 建表 SQL
 
 ### 架构说明
 
 - `Cloudflare Pages`：托管 `index.html`
-- `Cloudflare Pages Functions`：在同源路径下提供 `/api/health`、`/api/translate` 与 `/api/tts`
+- `Cloudflare Pages Functions`：在同源路径下提供 `/api/health`、`/api/translate`、`/api/history` 与 `/api/tts`
 - 浏览器端：默认直接请求当前站点 `/api/*`，不再需要额外填写 Cloudflare 自己的代理地址
 
 ### Pages 项目配置
@@ -79,6 +81,53 @@ pages_build_output_dir = "dist"
 - `/api/tts` 默认通过服务端转发 Google TTS，返回 `audio/mpeg`，不依赖浏览器本地 `speechSynthesis`
 - 页面本身走同源请求时不依赖 CORS
 - 只有在你希望把这个 Functions 代理给别的站点跨域调用时，才需要配置 `CORS_ALLOWED_ORIGINS`
+
+### D1 数据库绑定
+
+如果你要启用翻译历史记录，需要在 Cloudflare Pages 项目中增加一个 D1 binding：
+
+- `Binding name`：`DB`
+- `Database`：选择你创建的 D1 数据库
+
+当前代码固定通过 `context.env.DB` 访问数据库，因此 binding 名必须是 `DB`。
+
+建表 SQL 已放在：
+
+[`sql/001_create_translation_history.sql`](file:///Users/bytedance/trae工作文件夹/粤语翻译/sql/001_create_translation_history.sql)
+
+如果你使用 `wrangler` 在远端执行 SQL，可运行：
+
+```bash
+npx wrangler d1 execute <your-database-name> --remote --file ./sql/001_create_translation_history.sql
+```
+
+执行完成后，`POST /api/translate` 会在翻译成功后自动写入历史记录。
+
+读取历史时，可请求：
+
+```text
+GET /api/history
+GET /api/history?limit=10
+```
+
+返回示例：
+
+```json
+{
+  "items": [
+    {
+      "id": 12,
+      "source": "今天下班后我想去旺角吃饭，你有时间吗？",
+      "cantonese": "今日收工之后我想去旺角食饭，你得唔得闲？",
+      "tone_note": "口语自然",
+      "reading_version": "今日收工之后我想去旺角食饭，你得唔得闲？",
+      "provider": "openrouter",
+      "created_at": "2026-06-26 10:15:32"
+    }
+  ],
+  "limit": 10
+}
+```
 
 ### 部署后验证
 

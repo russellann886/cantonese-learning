@@ -3,6 +3,7 @@ import {
   buildCorsHeaders,
   handleOptions,
   jsonResponse,
+  saveTranslationHistory,
   translateSource,
 } from "../_utils/translator.js";
 
@@ -20,6 +21,11 @@ export async function onRequestPost(context) {
     }
 
     const payload = await translateSource(body.source, context.env);
+    try {
+      await saveTranslationHistory(body.source, payload, context.env);
+    } catch (historyError) {
+      console.error("failed_to_save_translation_history", historyError);
+    }
     return jsonResponse(payload, 200, corsHeaders);
   } catch (error) {
     if (error instanceof SyntaxError) {
